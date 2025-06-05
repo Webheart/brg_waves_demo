@@ -2,6 +2,7 @@
 using Unity.Collections;
 using Unity.Mathematics;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 public class Surface : MonoBehaviour
 {
@@ -17,33 +18,42 @@ public class Surface : MonoBehaviour
 
     void Start()
     {
+        Debug.Log($"{BatchRendererGroup.BufferTarget}");
         var maxInstances = Size.x * Size.y;
         positions = new NativeArray<float3>(maxInstances, Allocator.Persistent);
         colors = new NativeArray<Color>(maxInstances, Allocator.Persistent);
         renderInstance = RenderInstanceBuilder.Start()
             .WithMesh(Mesh).WithMaterial(Material)
             .WithTransformMatrix()
-            // .WithProperty<Color>(BathRendererGroupUtility.ColorID)
+            .WithProperty<Color>(BathRendererGroupUtility.ColorID)
             .Build(maxInstances);
-
         BuildPositions();
         WriteToBuffer();
         renderInstance.UploadBuffer();
+        // renderInstance.DebugDumpBuffer();
+        var renderParams = renderInstance.RenderParams;
+        Debug.Log($"WindowSize: {renderParams.WindowSize}");
+        Debug.Log($"WindowsCount: {renderParams.WindowsCount}");
+        Debug.Log($"InstancesPerWindow: {renderParams.InstancesPerWindow}");
+        Debug.Log($"TotalBufferSize: {renderParams.TotalBufferSize}");
+        Debug.Log($"MaxInstancesCount: {renderParams.MaxInstancesCount}");
     }
 
     void OnDestroy()
     {
         renderInstance.Dispose();
         positions.Dispose();
+        colors.Dispose();
     }
 
     void Update()
     {
-        // if (Input.GetKey(KeyCode.Space))
+        if (Input.GetKeyDown(KeyCode.Space))
         {
             BuildPositions();
             WriteToBuffer();
             renderInstance.UploadBuffer();
+            renderInstance.DebugDumpBuffer();
         }
     }
 
@@ -89,29 +99,27 @@ public class Surface : MonoBehaviour
             buffer[index] = new float4(1, 0, 0, 0);
         }
 
+        var matrixWriter = renderInstance.GetWriter(BathRendererGroupUtility.ObjectToWorldID);
+        var invmatrixWriter = renderInstance.GetWriter(BathRendererGroupUtility.WorldToObjectID);
+        var colorWriter = renderInstance.GetWriter(BathRendererGroupUtility.ColorID);
+
         for (int i = 0; i < positions.Length; i++)
         {
             var pos = positions[i];
-            // Создаем матрицу трансформации из позиции
-            float4x4 matrix = float4x4.TRS(
-                positions[i],
-                quaternion.identity,
-                new float3(1f)
-            );
 
-            // Записываем ObjectToWorld (первые 3 строки матрицы)
             // buffer[i * 3 + 0] = new float4(1, 0, 0, 0);
-            // buffer[i * 3 + 1] = matrix.c1;
-            // buffer[i * 3 + 2] = matrix.c2;
+            // buffer[i * 3 + 1] = new float4(1, 0, 0, 0);
+            // buffer[i * 3 + 2] = new float4(1, pos.x, pos.y, pos.z);
 
-            // Для WorldToObject можно использовать обратную матрицу,
-            // но в данном случае просто оставляем как есть для примера
-            // buffer[i * 3 + 3] = new float4(1, 0, 0, 0);
-            // buffer[i * 3 + 4] = new float4(1, 0, 0, 0);
-            // buffer[i * 3 + 5] = new float4(1, 0, 0, 0);
-            buffer[i * 3 + 0] = new float4(1, 0, 0, 0);
-            buffer[i * 3 + 1] = new float4(1, 0, 0, 0);
-            buffer[i * 3 + 2] = new float4(1, pos.x, pos.y, pos.z);
+            
+            // Debug.Log($"index in surface: {i}, {i * 3 + 0}");
+
+            var color = new Color(0.5f, 0.25f, 0.25f).linear;
+            // color.b = math.lerp(0, 1, pos.y);
+            colorWriter.Write(i, color);
+            
+            matrixWriter.Write(i, new float4x3(new float4(1, 0, 0, 0), new float4(1, 0, 0, 0),new float4(1, pos.x, pos.y, pos.z)));
+            invmatrixWriter.Write(i, new float4x3(new float4(1, 0, 0, 0),new float4(1, 0, 0, 0),new float4(1, 0, 0, 0)));
         }
     }
 }
