@@ -1,8 +1,10 @@
 ﻿using System;
+using RendererTools;
+using Unity.Burst;
 using Unity.Collections;
+using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
-using UnityEngine.Rendering;
 
 public class Surface : MonoBehaviour
 {
@@ -11,115 +13,88 @@ public class Surface : MonoBehaviour
     public Mesh Mesh;
     public Material Material;
 
+    RenderBuilderConfig renderBuilderConfig;
     RenderInstance renderInstance;
 
     NativeArray<float3> positions;
-    NativeArray<Color> colors;
 
-    void Start()
+    void Awake()
     {
-        Debug.Log($"{BatchRendererGroup.BufferTarget}");
         var maxInstances = Size.x * Size.y;
         positions = new NativeArray<float3>(maxInstances, Allocator.Persistent);
-        colors = new NativeArray<Color>(maxInstances, Allocator.Persistent);
-        renderInstance = RenderInstanceBuilder.Start()
+        renderBuilderConfig = RenderInstanceBuilder.Start()
             .WithMesh(Mesh).WithMaterial(Material)
             .WithTransformMatrix()
-            .WithProperty<Color>(BathRendererGroupUtility.ColorID)
-            .Build(maxInstances);
-        BuildPositions();
-        WriteToBuffer();
-        renderInstance.UploadBuffer();
-        // renderInstance.DebugDumpBuffer();
-        var renderParams = renderInstance.RenderParams;
-        Debug.Log($"WindowSize: {renderParams.WindowSize}");
-        Debug.Log($"WindowsCount: {renderParams.WindowsCount}");
-        Debug.Log($"InstancesPerWindow: {renderParams.InstancesPerWindow}");
-        Debug.Log($"TotalBufferSize: {renderParams.TotalBufferSize}");
-        Debug.Log($"MaxInstancesCount: {renderParams.MaxInstancesCount}");
+            .WithProperty<Color>(BatchRendererGroupUtility.ColorID);
+    }
+
+    void OnEnable()
+    {
+        renderInstance = renderBuilderConfig.Build(positions.Length);
+    }
+    
+    void OnDisable()
+    {
+        updateHandle.Complete();
+        renderInstance.Dispose();
+        renderInstance = null;
     }
 
     void OnDestroy()
     {
-        renderInstance.Dispose();
+        updateHandle.Complete();
+        renderInstance?.Dispose();
         positions.Dispose();
-        colors.Dispose();
     }
 
+    JobHandle updateHandle;
     void Update()
     {
-        if (Input.GetKeyDown(KeyCode.Space))
+        updateHandle.Complete();
+        renderInstance.UploadBuffer();
+        updateHandle = new UpdateJob
         {
-            BuildPositions();
-            WriteToBuffer();
-            renderInstance.UploadBuffer();
-            renderInstance.DebugDumpBuffer();
-        }
+            Size = Size,
+            Gap = Gap,
+            WorldPosition = transform.position,
+            ColorWriter = renderInstance.GetWriter(BatchRendererGroupUtility.ColorID),
+            ObjectToWorldWriter = renderInstance.GetWriter(BatchRendererGroupUtility.ObjectToWorldID),
+            WorldToObjectWriter = renderInstance.GetWriter(BatchRendererGroupUtility.WorldToObjectID),
+            Positions = positions,
+            Time = Time.time
+        }.ScheduleParallel(positions.Length, 10, updateHandle);
     }
 
-    void BuildPositions()
+    [BurstCompile]
+    struct UpdateJob : IJobFor
     {
-        // Вычисляем общий размер сетки
-        float2 totalSize = new float2(
-            (Size.x - 1) * Gap.x,
-            (Size.y - 1) * Gap.y
-        );
+        public NativeArray<float3> Positions;
+        public RendererDataWriter ObjectToWorldWriter;
+        public RendererDataWriter WorldToObjectWriter;
+        public RendererDataWriter ColorWriter;
 
-        // Центрируем сетку относительно позиции объекта
-        float3 centerOffset = new float3(
-            -totalSize.x * 0.5f,
-            0f,
-            -totalSize.y * 0.5f
-        );
-
-        var offset = (float3)transform.position;
-        float time = Time.time;
-        // Заполняем массив позиций
-        for (int z = 0; z < Size.y; z++)
+        public float3 WorldPosition;
+        public float Time;
+        public int2 Size;
+        public float2 Gap;
+        
+        public void Execute(int index)
         {
-            for (int x = 0; x < Size.x; x++)
-            {
-                float yPos = math.sin(time + x * 0.2f + z * 0.2f) * 2f;
-                float3 pos = new float3(
-                    x * Gap.x,
-                    yPos,
-                    z * Gap.y
-                ) + centerOffset + offset;
+            var totalSize = new float2((Size.x - 1) * Gap.x, (Size.y - 1) * Gap.y);
 
-                positions[z * Size.x + x] = pos;
-            }
-        }
-    }
-
-    void WriteToBuffer()
-    {
-        var buffer = renderInstance.GetBufferData();
-        for (var index = 0; index < buffer.Length; index++)
-        {
-            buffer[index] = new float4(1, 0, 0, 0);
-        }
-
-        var matrixWriter = renderInstance.GetWriter(BathRendererGroupUtility.ObjectToWorldID);
-        var invmatrixWriter = renderInstance.GetWriter(BathRendererGroupUtility.WorldToObjectID);
-        var colorWriter = renderInstance.GetWriter(BathRendererGroupUtility.ColorID);
-
-        for (int i = 0; i < positions.Length; i++)
-        {
-            var pos = positions[i];
-
-            // buffer[i * 3 + 0] = new float4(1, 0, 0, 0);
-            // buffer[i * 3 + 1] = new float4(1, 0, 0, 0);
-            // buffer[i * 3 + 2] = new float4(1, pos.x, pos.y, pos.z);
-
+            var centerOffset = new float3(-totalSize.x * 0.5f, 0f, -totalSize.y * 0.5f);
             
-            // Debug.Log($"index in surface: {i}, {i * 3 + 0}");
+            var cell = new int2(index % Size.x, index / Size.x);
+            var yPos = math.sin(Time + cell.x * 0.2f + cell.y * 0.2f) * 2f;
+            var pos = new float3(cell.x * Gap.x, yPos, cell.y * Gap.y) + centerOffset + WorldPosition;
 
-            var color = new Color(0.5f, 0.25f, 0.25f).linear;
-            // color.b = math.lerp(0, 1, pos.y);
-            colorWriter.Write(i, color);
+            Positions[index] = pos;
+
+            var color = new Color(0.5f, 0.25f, math.lerp(0, 1, pos.y));
+            ColorWriter.Write(index, color.linear);
             
-            matrixWriter.Write(i, new float4x3(new float4(1, 0, 0, 0), new float4(1, 0, 0, 0),new float4(1, pos.x, pos.y, pos.z)));
-            invmatrixWriter.Write(i, new float4x3(new float4(1, 0, 0, 0),new float4(1, 0, 0, 0),new float4(1, 0, 0, 0)));
+            ObjectToWorldWriter.Write(index, new float4x3(new float4(1, 0, 0, 0), new float4(1, 0, 0, 0),new float4(1, pos.x, pos.y, pos.z)));
+            WorldToObjectWriter.Write(index, new float4x3(new float4(1, 0, 0, 0),new float4(1, 0, 0, 0),new float4(1, 0, 0, 0)));
         }
     }
 }
