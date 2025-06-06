@@ -422,8 +422,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   Size:
-    x: 200
-    y: 200
+    x: 50
+    y: 50
   Gap:
     x: 1
     y: 1

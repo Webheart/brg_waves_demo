@@ -15,6 +15,9 @@ public class Surface : MonoBehaviour
 
     RenderBuilderConfig renderBuilderConfig;
     RenderInstance renderInstance;
+    RendererDataWriter objectToWorldWriter;
+    RendererDataWriter worldToObjectWriter;
+    RendererDataWriter colorWriter;
 
     NativeArray<float3> positions;
 
@@ -31,6 +34,9 @@ public class Surface : MonoBehaviour
     void OnEnable()
     {
         renderInstance = renderBuilderConfig.Build(positions.Length);
+        objectToWorldWriter = renderInstance.GetWriter(BatchRendererGroupUtility.ObjectToWorldID);
+        worldToObjectWriter = renderInstance.GetWriter(BatchRendererGroupUtility.WorldToObjectID);
+        colorWriter = renderInstance.GetWriter(BatchRendererGroupUtility.ColorID);
     }
     
     void OnDisable()
@@ -50,19 +56,23 @@ public class Surface : MonoBehaviour
     JobHandle updateHandle;
     void Update()
     {
-        updateHandle.Complete();
-        renderInstance.UploadBuffer();
         updateHandle = new UpdateJob
         {
             Size = Size,
             Gap = Gap,
             WorldPosition = transform.position,
-            ColorWriter = renderInstance.GetWriter(BatchRendererGroupUtility.ColorID),
-            ObjectToWorldWriter = renderInstance.GetWriter(BatchRendererGroupUtility.ObjectToWorldID),
-            WorldToObjectWriter = renderInstance.GetWriter(BatchRendererGroupUtility.WorldToObjectID),
+            ColorWriter = colorWriter,
+            ObjectToWorldWriter = objectToWorldWriter,
+            WorldToObjectWriter = worldToObjectWriter,
             Positions = positions,
             Time = Time.time
         }.ScheduleParallel(positions.Length, 10, updateHandle);
+    }
+
+    void LateUpdate()
+    {
+        updateHandle.Complete();
+        renderInstance.UploadBuffer(positions.Length);
     }
 
     [BurstCompile]

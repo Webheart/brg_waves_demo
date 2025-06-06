@@ -14,10 +14,12 @@ namespace RendererTools
         internal GraphicsBuffer GraphicsBuffer;
         internal BatchMeshID MeshID;
         internal BatchMaterialID MaterialID;
-        internal NativeArray<float4> BufferData;
+        internal NativeArray<byte> BufferData;
         internal NativeArray<BatchID> Batches;
         internal RenderParams RenderParams;
         internal NativeHashMap<int, PropertyLayout> PropertyLayoutMap;
+
+        int visibleCount;
 
         internal RenderInstance() {}
         
@@ -58,54 +60,40 @@ namespace RendererTools
             RenderParams = default;
         }
 
-        public void DebugDumpBuffer()
+        public void UploadBuffer(int visibleCount)
         {
-            Debug.Log("=== Buffer Dump ===");
-            var buffer = BufferData;
-
-            for (var index = 0; index < buffer.Length; index++)
-            {
-                var float4 = buffer[index];
-                Debug.Log($"[{index}]: {float4}");
-            }
-        }
-
-        public void UploadBuffer()
-        {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            if (visibleCount < 0 || visibleCount > RenderParams.MaxInstancesCount)
+                throw new ArgumentOutOfRangeException(nameof(visibleCount), $"Value must be between 0 and MaxInstancesCount ({RenderParams.MaxInstancesCount})");
+#endif
+            
+            this.visibleCount = visibleCount;
             if (!BatchRendererGroupUtility.IsConstantBuffer)
             {
                 GraphicsBuffer.SetData(BufferData);
                 return;
             }
 
-            var completeWindows = RenderParams.MaxInstancesCount / RenderParams.InstancesPerWindow;
-            var float4PerWindow = RenderParams.WindowSize / sizeof(float4);
+            var completeWindows = visibleCount / RenderParams.InstancesPerWindow;
+            var bytesPerWindow = RenderParams.WindowSize;
 
             if (completeWindows > 0)
             {
-                var sizeInFloat4 = completeWindows * float4PerWindow;
-                GraphicsBuffer.SetData(BufferData, 0, 0, sizeInFloat4);
+                var sizeInBytes = completeWindows * bytesPerWindow;
+                GraphicsBuffer.SetData(BufferData, 0, 0, sizeInBytes);
             }
 
-            var lastBatchId = completeWindows;
-            var itemInLastBatch = RenderParams.MaxInstancesCount - RenderParams.InstancesPerWindow * completeWindows;
+            var itemInLastBatch = visibleCount - RenderParams.InstancesPerWindow * completeWindows;
+            if (itemInLastBatch <= 0) return;
 
-            if (itemInLastBatch <= 0)
-                return;
-
-            var windowOffsetInFloat4 = lastBatchId * float4PerWindow;
+            var windowOffsetInBytes = completeWindows * bytesPerWindow;
 
             foreach (var map in PropertyLayoutMap)
             {
                 var layout = map.Value;
-                var propertyOffsetInFloat4 = (windowOffsetInFloat4 * 16 + layout.Offset) / 16;
-
-                var propertySizeInFloat4 = layout.Size / 16;
-                if (layout.Size % 16 != 0) propertySizeInFloat4++;
-
-                var totalSizeInFloat4 = propertySizeInFloat4 * itemInLastBatch;
-
-                GraphicsBuffer.SetData(BufferData, propertyOffsetInFloat4, propertyOffsetInFloat4, totalSizeInFloat4);
+                var propertyOffsetInBytes = windowOffsetInBytes + layout.Offset;
+                var totalSizeInBytes = layout.Size * itemInLastBatch;
+                GraphicsBuffer.SetData(BufferData, propertyOffsetInBytes, propertyOffsetInBytes, totalSizeInBytes);
             }
         }
 
@@ -121,7 +109,7 @@ namespace RendererTools
         {
             var drawCommands = new BatchCullingOutputDrawCommands();
 
-            var instancesCount = RenderParams.MaxInstancesCount;
+            var instancesCount = visibleCount;
             var instancesPerWindow = RenderParams.InstancesPerWindow;
             var castShadows = false;
 

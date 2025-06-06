@@ -95,7 +95,7 @@ namespace RendererTools
             var totalBufferSize = renderParams.TotalBufferSize;
 
             instance.GraphicsBuffer = BatchRendererGroupUtility.CreateGraphicsBuffer(totalBufferSize);
-            instance.BufferData = new NativeArray<float4>(totalBufferSize / UnsafeUtility.SizeOf<float4>(), Allocator.Persistent);
+            instance.BufferData = new NativeArray<byte>(totalBufferSize, Allocator.Persistent);
 
             var batchMetadata = new NativeArray<MetadataValue>(config.Properties.Count, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
             instance.PropertyLayoutMap = new NativeHashMap<int, PropertyLayout>(config.Properties.Count, Allocator.Persistent);
@@ -129,7 +129,7 @@ namespace RendererTools
 
             instance.Batches = new NativeArray<BatchID>(renderParams.WindowsCount, Allocator.Persistent);
 
-            if (renderParams.WindowsCount > 1)
+            if (BatchRendererGroupUtility.IsConstantBuffer)
             {
                 for (var i = 0; i < renderParams.WindowsCount; i++)
                     instance.Batches[i] = instance.BatchRendererGroup.AddBatch(batchMetadata,
