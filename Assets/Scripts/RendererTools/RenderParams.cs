@@ -1,20 +1,22 @@
 ﻿namespace RendererTools
 {
-    internal readonly struct RenderParams
+    internal struct RenderParams
     {
-        public readonly int WindowsCount;
-        public readonly int WindowSize;
-        public readonly int InstancesPerWindow;
-        public readonly int TotalBufferSize;
-        public readonly int MaxInstancesCount;
-    
-        public RenderParams(int windowsCount, int windowSize, int instancesPerWindow, int totalBufferSize, int maxInstancesCount)
+        internal int WindowsCount;
+        internal int WindowSize;
+        internal int InstancesPerWindow;
+        internal int TotalBufferSize;
+        internal int MaxInstancesCount;
+        internal int SharedDataSize;
+        
+        internal RenderParams(int windowsCount, int windowSize, int instancesPerWindow, int totalBufferSize, int maxInstancesCount, int sharedDataSize)
         {
             WindowsCount = windowsCount;
             WindowSize = windowSize;
             InstancesPerWindow = instancesPerWindow;
             TotalBufferSize = totalBufferSize;
             MaxInstancesCount = maxInstancesCount;
+            SharedDataSize = sharedDataSize;
         }
     }
 }

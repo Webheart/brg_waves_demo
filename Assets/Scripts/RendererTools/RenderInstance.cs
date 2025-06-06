@@ -2,7 +2,6 @@
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
-using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -21,21 +20,39 @@ namespace RendererTools
 
         int visibleCount;
 
-        internal RenderInstance() {}
-        
-        public RendererDataWriter GetWriter(int propertyID)
-        {
-            if (!PropertyLayoutMap.TryGetValue(propertyID, out var layout))
-                throw new ArgumentException($"Property {propertyID} not found");
+        internal RenderInstance() { }
 
-            return new RendererDataWriter
+        public PerInstanceDataWriter GetPerInstanceWriter(int propertyID)
+        {
+            var exists = PropertyLayoutMap.TryGetValue(propertyID, out var layout);
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            if (!exists) throw new ArgumentException($"Property {propertyID} not found");
+            if (!layout.PerInstance) throw new ArgumentException($"Property {propertyID} is not per instance");
+#endif
+            return new PerInstanceDataWriter
             {
                 BufferPtr = (byte*)BufferData.GetUnsafePtr(),
                 PropertyOffset = layout.Offset,
                 PropertySize = layout.Size,
                 InstancesPerWindow = RenderParams.InstancesPerWindow,
-                WindowSize = BatchRendererGroupUtility.IsConstantBuffer ? UnityEngine.Rendering.BatchRendererGroup.GetConstantBufferMaxWindowSize() : RenderParams.TotalBufferSize
+                WindowSize = RenderParams.WindowSize
             };
+        }
+
+        public void WriteSharedProperty<T>(int propertyID, T value) where T : unmanaged
+        {
+            var exists = PropertyLayoutMap.TryGetValue(propertyID, out var layout);
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            if (!exists) throw new ArgumentException($"Property {propertyID} not found");
+            if (layout.PerInstance) throw new ArgumentException($"Property {propertyID} is per instance");
+#endif
+            for (int i = 0; i < RenderParams.WindowsCount; i++)
+            {
+                var bufferPtr = (byte*)BufferData.GetUnsafePtr();
+                var targetPtr = bufferPtr + layout.Offset + i * RenderParams.WindowSize;
+
+                UnsafeUtility.CopyStructureToPtr(ref value, targetPtr);
+            }
         }
 
         public void Dispose()
@@ -60,13 +77,25 @@ namespace RendererTools
             RenderParams = default;
         }
 
+        public void Dump<T>() where T : unmanaged
+        {
+            var buffer = BufferData.Reinterpret<T>(1);
+
+            for (var index = 0; index < buffer.Length; index++)
+            {
+                Debug.Log($"[{index}] {buffer[index]}");
+            }
+
+            Debug.Log($"{BufferData.Length} bytes, {RenderParams.TotalBufferSize}");
+        }
+
         public void UploadBuffer(int visibleCount)
         {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             if (visibleCount < 0 || visibleCount > RenderParams.MaxInstancesCount)
                 throw new ArgumentOutOfRangeException(nameof(visibleCount), $"Value must be between 0 and MaxInstancesCount ({RenderParams.MaxInstancesCount})");
 #endif
-            
+
             this.visibleCount = visibleCount;
             if (!BatchRendererGroupUtility.IsConstantBuffer)
             {
@@ -97,14 +126,7 @@ namespace RendererTools
             }
         }
 
-        static T* Malloc<T>(uint count) where T : unmanaged
-        {
-            return (T*)UnsafeUtility.Malloc(
-                UnsafeUtility.SizeOf<T>() * count,
-                UnsafeUtility.AlignOf<T>(),
-                Allocator.TempJob);
-        }
-
+        //todo make proper culling
         internal JobHandle OnPerformCulling(BatchRendererGroup rendererGroup, BatchCullingContext cullingContext, BatchCullingOutput cullingOutput, IntPtr userContext)
         {
             var drawCommands = new BatchCullingOutputDrawCommands();
@@ -179,6 +201,14 @@ namespace RendererTools
             drawCommands.instanceSortingPositionFloatCount = 0;
 
             return new JobHandle();
+        }
+
+        static T* Malloc<T>(uint count) where T : unmanaged
+        {
+            return (T*)UnsafeUtility.Malloc(
+                UnsafeUtility.SizeOf<T>() * count,
+                UnsafeUtility.AlignOf<T>(),
+                Allocator.TempJob);
         }
     }
 }

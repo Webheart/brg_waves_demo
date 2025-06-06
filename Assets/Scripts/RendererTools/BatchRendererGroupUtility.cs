@@ -16,24 +16,26 @@ namespace RendererTools
     
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal static int AlignedTo16Bytes(this int value) => (value + 15) & -16;
+        internal static int AlignToBytes(this int value, int bytes) => (value + bytes - 1) & -bytes;
     
-        internal static RenderParams CalculateRenderParams(int maxInstances, int instanceDataSize)
+        internal static RenderParams CalculateRenderParams(int maxInstances, int instanceDataSize, int bufferDataSize)
         {
             if (IsConstantBuffer)
             {
                 var windowSize = BatchRendererGroup.GetConstantBufferMaxWindowSize();
-                var instancesPerWindow = windowSize / instanceDataSize;
+                var instancesPerWindow = windowSize / (instanceDataSize + bufferDataSize);
         
                 var windowsCount = (maxInstances + instancesPerWindow - 1) / instancesPerWindow;
+                // bufferDataSize = bufferDataSize.AlignToBytes(BatchRendererGroup.GetConstantBufferOffsetAlignment());
                 var totalBufferSize = windowsCount * windowSize;
 
-                return new RenderParams(windowsCount, windowSize, instancesPerWindow, totalBufferSize, maxInstances);
+                return new RenderParams(windowsCount, windowSize, instancesPerWindow, totalBufferSize, maxInstances, bufferDataSize);
             }
             else
             {
-                var totalBufferSize = maxInstances * instanceDataSize;
-                totalBufferSize = totalBufferSize.AlignedTo16Bytes(); 
-                return new RenderParams(1, totalBufferSize, maxInstances, totalBufferSize, maxInstances);
+                var totalBufferSize = maxInstances * instanceDataSize + bufferDataSize;
+                totalBufferSize = totalBufferSize.AlignedTo16Bytes();
+                return new RenderParams(1, totalBufferSize, maxInstances, totalBufferSize, maxInstances, bufferDataSize);
             }
         }
 
@@ -41,8 +43,8 @@ namespace RendererTools
         {
             if (IsConstantBuffer)
             {
-                var elements = totalBufferSize / 16;
-                return new GraphicsBuffer(GraphicsBuffer.Target.Constant, elements, 16);
+                var elements = totalBufferSize / 4;
+                return new GraphicsBuffer(GraphicsBuffer.Target.Constant, elements, 4);
             }
             else
             {

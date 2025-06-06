@@ -3,10 +3,11 @@ using Unity.Collections.LowLevel.Unsafe;
 
 namespace RendererTools
 {
-    public unsafe struct RendererDataWriter
+    public unsafe struct PerInstanceDataWriter
     {
         [NativeDisableUnsafePtrRestriction]
         internal byte* BufferPtr;
+
         internal int PropertyOffset;
         internal int PropertySize;
         internal int InstancesPerWindow;
@@ -18,7 +19,7 @@ namespace RendererTools
             if (UnsafeUtility.SizeOf<T>() != PropertySize)
                 throw new ArgumentException($"Data size mismatch for {typeof(T)}! Expected: {PropertySize}, Actual: {UnsafeUtility.SizeOf<T>()}");
 #endif
-            
+
             var windowIndex = globalInstanceIndex / InstancesPerWindow;
             var instanceIndex = globalInstanceIndex % InstancesPerWindow;
 
