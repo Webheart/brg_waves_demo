@@ -17,77 +17,58 @@ public class Surface : MonoBehaviour
     public Mesh Mesh;
     public Material Material;
 
+    public Color From, To;
+
     RenderBuilderConfig renderBuilderConfig;
     RenderInstance renderInstance;
-    PerInstanceDataWriter positionWriter;
-    PerInstanceDataWriter colorWriter;
 
     NativeArray<float3> transforms;
 
     void Awake()
     {
-        var maxInstances = Size.x * Size.y;
-        transforms = new NativeArray<float3>(maxInstances, Allocator.Persistent);
-        renderBuilderConfig = RenderInstanceBuilder.Start().WithBounds(new Bounds(transform.position, new(Size.x * Gap.x, 1, Size.y * Gap.y)))
+        renderBuilderConfig = RenderInstanceBuilder.Start()
             .WithMesh(Mesh).WithMaterial(Material)
             .WithTransformMatrix(false)
-            // .WithProperty<Color>(BatchRendererGroupUtility.ColorID, false);
             .WithProperty<float3>(PositionProperty)
             .WithProperty<Color32>(ColorProperty);
     }
 
     void OnEnable()
     {
+        var maxInstances = Size.x * Size.y;
+        transforms = new NativeArray<float3>(maxInstances, Allocator.Persistent);
         renderInstance = renderBuilderConfig.Build(transforms.Length);
+        renderInstance.SetVisibleCount(maxInstances / 2);
     }
 
     void OnDisable()
     {
-        updateHandle.Complete();
+        transforms.Dispose();
         renderInstance.Dispose();
         renderInstance = null;
     }
 
     void OnDestroy()
     {
-        updateHandle.Complete();
         renderInstance?.Dispose();
-        transforms.Dispose();
     }
-
-    JobHandle updateHandle;
 
     void Update()
     {
-        updateHandle.Complete();
-        renderInstance.UploadBuffer(transforms.Length);
-
-        if (Input.GetKeyDown(KeyCode.Space)) renderInstance.Dump<float4>();
-
-        var nonUniformTransform = new NonUniformTransform
-        {
-            Position = transform.position,
-            Rotation = transform.rotation,
-            Scale = transform.localScale
-        };
+        var matrix = transform.TRS();
+        renderInstance.WriteSharedProperty(BatchRendererGroupUtility.ObjectToWorldID, matrix);
+        renderInstance.WriteSharedProperty(BatchRendererGroupUtility.WorldToObjectID, matrix.Inverse());
         
-        var matr = nonUniformTransform.TRS();
-        renderInstance.WriteSharedProperty(BatchRendererGroupUtility.ObjectToWorldID, matr);
-        renderInstance.WriteSharedProperty(BatchRendererGroupUtility.WorldToObjectID, matr.Inverse());
-        
-        updateHandle = new UpdateJob
+        renderInstance.Dependency = new UpdateJob
         {
             Size = Size,
             Gap = Gap,
             WorldPosition = transform.position,
             ColorWriter = renderInstance.GetPerInstanceWriter(ColorProperty),
             PositionWriter = renderInstance.GetPerInstanceWriter(PositionProperty),
-            // ColorWriter = renderInstance.GetWriter(BatchRendererGroupUtility.ColorID),
-            // PositionWriter = renderInstance.GetWriter(BatchRendererGroupUtility.ObjectToWorldID),
-            // InvPositionWriter = renderInstance.GetWriter(BatchRendererGroupUtility.WorldToObjectID),
             Transforms = transforms,
-            Time = Time.time
-        }.ScheduleParallel(transforms.Length, 10, updateHandle);
+            Time = Time.time, From = From, To = To
+        }.ScheduleParallel(transforms.Length, 10, renderInstance.Dependency);
     }
 
     [BurstCompile]
@@ -102,6 +83,7 @@ public class Surface : MonoBehaviour
         public float Time;
         public int2 Size;
         public float2 Gap;
+        public Color From, To;
 
         public void Execute(int index)
         {
@@ -114,14 +96,10 @@ public class Surface : MonoBehaviour
             var pos = new float3(cell.x * Gap.x, yPos, cell.y * Gap.y) + centerOffset + WorldPosition;
 
             Transforms[index] = pos;
-            // var t = new NonUniformTransform(pos).TRS();
-
-            var color = new Color(0.5f, 0.25f, math.lerp(0, 1, pos.y));
+            var invLerp = math.unlerp(-2, 2, pos.y);
+            var color = Color.Lerp(From, To, invLerp);
             ColorWriter.Write(index, (Color32)color.linear);
             PositionWriter.Write(index, pos);
-            // ColorWriter.Write(index, color.linear);
-            // PositionWriter.Write(index, t);
-            // InvPositionWriter.Write(index, t.Inverse());
         }
     }
 }

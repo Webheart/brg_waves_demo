@@ -39,6 +39,15 @@ public static class CompactMatrixExtensions
             math.mul(transform.Rotation, new float3(0.0f, 0.0f, transform.Scale.z)),
             transform.Position);
     }
+    
+    public static float3x4 TRS(this Transform transform)
+    {
+        return new float3x4(
+            math.mul(transform.rotation, new float3(transform.lossyScale.x, 0.0f, 0.0f)),
+            math.mul(transform.rotation, new float3(0.0f, transform.lossyScale.y, 0.0f)),
+            math.mul(transform.rotation, new float3(0.0f, 0.0f, transform.lossyScale.z)),
+            transform.position);
+    }
 
     public static float3x4 Inverse(this float3x4 compactMatrix)
     {
