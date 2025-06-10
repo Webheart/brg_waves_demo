@@ -6,7 +6,6 @@ using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
 
-
 public class Surface : MonoBehaviour
 {
     static readonly int ColorProperty = Shader.PropertyToID("_Color32");
@@ -38,7 +37,7 @@ public class Surface : MonoBehaviour
         var maxInstances = Size.x * Size.y;
         transforms = new NativeArray<float3>(maxInstances, Allocator.Persistent);
         renderInstance = renderBuilderConfig.Build(transforms.Length);
-        renderInstance.SetVisibleCount(maxInstances / 2);
+        renderInstance.SetVisibleCount(maxInstances);
     }
 
     void OnDisable()

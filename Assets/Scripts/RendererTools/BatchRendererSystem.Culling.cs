@@ -71,10 +71,11 @@ namespace RendererTools
                 DrawCommandCounts = drawCommandCounts,
                 InstancesPerWindow = instancesPerWindow,
                 VisibleCounts = visibleCounts,
-                MaterialIDs = materialIDs.AsArray(),
-                MeshIDs = meshIDs.AsArray(),
-                AllBatches = batchIDs.AsArray(),
-                BatchRanges = batchRanges.AsArray()
+                VisibleOffsets = visibleOffsets,
+                MaterialIDs = materialIDs,
+                MeshIDs = meshIDs,
+                AllBatches = batchIDs,
+                BatchRanges = batchRanges
             }.ScheduleParallel(renderInstanceCount, 1, dependency);
 
             cullingOutput.drawCommands[0] = new BatchCullingOutputDrawCommands
@@ -98,7 +99,7 @@ namespace RendererTools
             [NativeDisableUnsafePtrRestriction]
             public int* VisibleInstances;
 
-            [ReadOnly, DeallocateOnJobCompletion] public NativeArray<int> VisibleOffsets;
+            [ReadOnly] public NativeArray<int> VisibleOffsets;
             [ReadOnly] public NativeArray<int> VisibleCounts;
 
             public void Execute(int index)
@@ -152,11 +153,12 @@ namespace RendererTools
             [ReadOnly, DeallocateOnJobCompletion] public NativeArray<int> DrawCommandCounts;
             [ReadOnly, DeallocateOnJobCompletion] public NativeArray<int> InstancesPerWindow;
             [ReadOnly, DeallocateOnJobCompletion] public NativeArray<int> VisibleCounts;
+            [ReadOnly, DeallocateOnJobCompletion] public NativeArray<int> VisibleOffsets;
 
-            [ReadOnly] public NativeArray<BatchMaterialID> MaterialIDs;
-            [ReadOnly] public NativeArray<BatchMeshID> MeshIDs;
-            [ReadOnly] public NativeArray<BatchID> AllBatches;
-            [ReadOnly] public NativeArray<int2> BatchRanges;
+            [ReadOnly] public NativeList<BatchMaterialID> MaterialIDs;
+            [ReadOnly] public NativeList<BatchMeshID> MeshIDs;
+            [ReadOnly] public NativeList<BatchID> AllBatches;
+            [ReadOnly] public NativeList<int2> BatchRanges;
 
             public void Execute(int index)
             {
@@ -174,7 +176,7 @@ namespace RendererTools
                     var countInBatch = Mathf.Min(remaining, perWindow);
                     DrawCommands[drawCommandOffset + i] = new BatchDrawCommand
                     {
-                        visibleOffset = 0,
+                        visibleOffset = (uint)(VisibleOffsets[index]),
                         visibleCount = (uint)countInBatch,
                         batchID = AllBatches[batchOffset + i],
                         materialID = MaterialIDs[index],
@@ -184,7 +186,7 @@ namespace RendererTools
                         flags = BatchDrawCommandFlags.None,
                         sortingPosition = 0
                     };
-
+                
                     remaining -= countInBatch;
                 }
             }

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Unity.Collections;
+using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -94,7 +95,6 @@ namespace RendererTools
 
             var renderParams = BatchRendererGroupUtility.CalculateRenderParams(maxInstancesCount, instanceDataSize, bufferDataSize);
             var renderInstance = new RenderInstance(renderParams, config.Properties.Count);
-            var instanceIndex = renderInstances.Count;
             renderInstances.Add(renderInstance);
 
             meshIDs.Add(batchRendererGroup.RegisterMesh(config.Mesh));
@@ -139,7 +139,7 @@ namespace RendererTools
                 batchMetadata[index] = metadataValue;
             }
 
-            batchRanges.Add(new(instanceIndex, renderParams.WindowsCount));
+            batchRanges.Add(new(batchIDs.Length, renderParams.WindowsCount));
             if (BatchRendererGroupUtility.IsConstantBuffer)
             {
                 for (var i = 0; i < renderParams.WindowsCount; i++)
@@ -169,12 +169,18 @@ namespace RendererTools
             }
 
             batchIDs.RemoveRange(batchRange.x, batchRange.y);
+            for (int i = index + 1; i < batchRanges.Length; i++)
+            {
+                var range = batchRanges[i];
+                batchRanges[i] = new int2(range.x - batchRange.y, range.y);
+            }
 
             batchRendererGroup.UnregisterMaterial(materialIDs[index]);
             batchRendererGroup.UnregisterMesh(meshIDs[index]);
             materialIDs.RemoveAt(index);
             meshIDs.RemoveAt(index);
             renderInstances.RemoveAt(index);
+            batchRanges.RemoveAt(index);
         }
     }
 }

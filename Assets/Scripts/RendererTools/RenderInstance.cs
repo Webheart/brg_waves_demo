@@ -68,6 +68,8 @@ namespace RendererTools
 
                 UnsafeUtility.CopyStructureToPtr(ref value, targetPtr);
             }
+
+            IsDirty = true;
         }
 
         public void SetVisibleCount(int visibleCount)
@@ -123,14 +125,11 @@ namespace RendererTools
             var itemInLastBatch = VisibleCount - RenderParams.InstancesPerWindow * completeWindows;
             if (itemInLastBatch <= 0) return;
 
-            var windowOffsetInBytes = completeWindows * bytesPerWindow;
-
-            foreach (var map in PropertyLayoutMap)
+            var itemsInLastWindow = VisibleCount % RenderParams.InstancesPerWindow;
+            if (itemsInLastWindow > 0)
             {
-                var layout = map.Value;
-                var propertyOffsetInBytes = windowOffsetInBytes + layout.Offset;
-                var totalSizeInBytes = layout.Size * itemInLastBatch;
-                GraphicsBuffer.SetData(BufferData, propertyOffsetInBytes, propertyOffsetInBytes, totalSizeInBytes);
+                var lastWindowOffset = completeWindows * bytesPerWindow;
+                GraphicsBuffer.SetData(BufferData, lastWindowOffset, lastWindowOffset, bytesPerWindow);
             }
         }
     }
