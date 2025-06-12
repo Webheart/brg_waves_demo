@@ -5,6 +5,8 @@ using System.Diagnostics;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
 using UnityEngine;
+using UnityEngine.Rendering;
+
 namespace RendererTools
 {
     public class RenderBuilderConfig
@@ -35,7 +37,7 @@ namespace RendererTools
         {
             return new RenderBuilderConfig
             {
-                Properties = new List<ShaderProperty>(),
+                Properties = new List<ShaderProperty>()
             };
         }
 
@@ -62,7 +64,7 @@ namespace RendererTools
         {
             return config.WithProperty<float4x3>(BatchRendererGroupUtility.ObjectToWorldID, perInstance).WithProperty<float4x3>(BatchRendererGroupUtility.WorldToObjectID, perInstance);
         }
-        
+
         public static RenderInstance Build(this RenderBuilderConfig config, int maxInstancesCount)
         {
             config.ValidateSettings();

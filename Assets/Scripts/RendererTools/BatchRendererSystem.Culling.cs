@@ -183,7 +183,7 @@ namespace RendererTools
                         meshID = MeshIDs[index],
                         submeshIndex = 0,
                         splitVisibilityMask = 0xff,
-                        flags = BatchDrawCommandFlags.None,
+                        flags = BatchDrawCommandFlags.HasMotion,
                         sortingPosition = 0
                     };
                 

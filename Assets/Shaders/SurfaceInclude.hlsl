@@ -16,9 +16,9 @@ void UnpackColor_float(float packed, out float4 unpacked)
 #ifndef SET_WORLD_POSITION_INCLUDED
 #define SET_WORLD_POSITION_INCLUDED
 
-void SetWorldPosition_float(float3 ObjectPosition, float3 TargetWorldPos, out float3 WorldPosition)
+void SetWorldPosition_float(float3 WorldPosition, float3 CellOffset, out float3 CellPosition)
 {
-    WorldPosition = TargetWorldPos + ObjectPosition;
+    CellPosition = WorldPosition + CellOffset;
 }
 
 #endif

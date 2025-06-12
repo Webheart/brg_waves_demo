@@ -1,32 +1,39 @@
-﻿using System;
-using RendererTools;
+﻿using RendererTools;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
+using Unity.Mathematics.Geometry;
 using UnityEngine;
 
+[DefaultExecutionOrder(JobOrder.DataReader)]
 public class Surface : MonoBehaviour
 {
     static readonly int ColorProperty = Shader.PropertyToID("_Color32");
     static readonly int PositionProperty = Shader.PropertyToID("_WorldPosition");
 
-    public int2 Size;
-    public float2 Gap;
-    public Mesh Mesh;
-    public Material Material;
+    [Header("Render Properties")]
+    [RuntimeReadOnly, SerializeField] Mesh mesh;
+    [RuntimeReadOnly, SerializeField] Material material;
 
-    public Color From, To;
+    [Header("Grid Properties")]
+    [RuntimeReadOnly, SerializeField] int2 gridSize;
+    [SerializeField] float2 gridPivot;
+    [SerializeField] Color from, to;
+
+    [Header("ReadOnly Data Properties")]
+    [RuntimeReadOnly, SerializeField] WavesData wavesData;
+
+    public MinMaxAABB AABB => MinMaxAABB.CreateFromCenterAndExtents(transform.position, new float3(gridSize.x, 1, gridSize.y));
 
     RenderBuilderConfig renderBuilderConfig;
     RenderInstance renderInstance;
 
-    NativeArray<float3> transforms;
 
     void Awake()
     {
         renderBuilderConfig = RenderInstanceBuilder.Start()
-            .WithMesh(Mesh).WithMaterial(Material)
+            .WithMesh(mesh).WithMaterial(material)
             .WithTransformMatrix(false)
             .WithProperty<float3>(PositionProperty)
             .WithProperty<Color32>(ColorProperty);
@@ -34,69 +41,139 @@ public class Surface : MonoBehaviour
 
     void OnEnable()
     {
-        var maxInstances = Size.x * Size.y;
-        transforms = new NativeArray<float3>(maxInstances, Allocator.Persistent);
-        renderInstance = renderBuilderConfig.Build(transforms.Length);
+        var maxInstances = gridSize.x * gridSize.y;
+        renderInstance = renderBuilderConfig.Build(maxInstances);
         renderInstance.SetVisibleCount(maxInstances);
     }
 
     void OnDisable()
     {
-        transforms.Dispose();
         renderInstance.Dispose();
         renderInstance = null;
     }
 
-    void OnDestroy()
-    {
-        renderInstance?.Dispose();
-    }
-
     void Update()
     {
-        var matrix = transform.TRS();
+        var matrix = transform.ToCompactMatrix();
         renderInstance.WriteSharedProperty(BatchRendererGroupUtility.ObjectToWorldID, matrix);
         renderInstance.WriteSharedProperty(BatchRendererGroupUtility.WorldToObjectID, matrix.Inverse());
-        
-        renderInstance.Dependency = new UpdateJob
+
+        var waveEffects = new NativeArray<float>(gridSize.x * gridSize.y, Allocator.TempJob);
+        if (wavesData.IsCreated)
         {
-            Size = Size,
-            Gap = Gap,
-            WorldPosition = transform.position,
-            ColorWriter = renderInstance.GetPerInstanceWriter(ColorProperty),
+            var dataReader = wavesData.GetReader();
+            renderInstance.Dependency = new ComputeWavesJob
+            {
+                Waves = dataReader.Data.AsDeferredJobArray(),
+                WaveEffects = waveEffects,
+                GridPosition = transform.position,
+                GridSize = gridSize,
+                GridPivot = gridPivot
+            }.Schedule(dataReader.Data, 1, dataReader.Dependency);
+        }
+
+        renderInstance.Dependency = new ShowCellsJob
+        {
             PositionWriter = renderInstance.GetPerInstanceWriter(PositionProperty),
-            Transforms = transforms,
-            Time = Time.time, From = From, To = To
-        }.ScheduleParallel(transforms.Length, 10, renderInstance.Dependency);
+            ColorWriter = renderInstance.GetPerInstanceWriter(ColorProperty),
+            GridSize = gridSize,
+            GridPivot = gridPivot,
+            From = from, To = to,
+            WaveEffects = waveEffects
+        }.ScheduleParallel(gridSize.x * gridSize.y, math.max(gridSize.x, gridSize.y), renderInstance.Dependency);
+        waveEffects.Dispose(renderInstance.Dependency);
     }
 
     [BurstCompile]
-    struct UpdateJob : IJobFor
+    struct ComputeWavesJob : IJobParallelForDefer
     {
-        public NativeArray<float3> Transforms;
-        public PerInstanceDataWriter PositionWriter;
-        public PerInstanceDataWriter InvPositionWriter;
-        public PerInstanceDataWriter ColorWriter;
+        const float OscillationFactor = math.PI * 4;
+        
+        [ReadOnly] public NativeArray<Wave> Waves;
+        public NativeArray<float> WaveEffects;
+        public float3 GridPosition;
+        public int2 GridSize;
+        public float2 GridPivot;
 
-        public float3 WorldPosition;
-        public float Time;
-        public int2 Size;
-        public float2 Gap;
+        public void Execute(int waveIndex)
+        {
+            var wave = Waves[waveIndex];
+            var localWavePos = wave.Position - GridPosition;
+            var gridPos = new float2(localWavePos.x + GridSize.x * GridPivot.x, localWavePos.z + GridSize.y * GridPivot.y);
+
+            var radius = wave.Radius;
+            var radiusSq = radius * radius;
+            
+            var minCell = (int2)math.floor(gridPos - radius);
+            var maxCell = (int2)math.ceil(gridPos + radius);
+            minCell = math.clamp(minCell, 0, GridSize - 1);
+            maxCell = math.clamp(maxCell, 0, GridSize - 1);
+
+            var waveStrength = wave.Strength;
+            var invRadiusSq = 1.0f / radiusSq;
+
+            for (var j = minCell.y; j <= maxCell.y; j++)
+            {
+                float cellZ = j;
+                var dz = cellZ - gridPos.y;
+                var dzSq = dz * dz;
+                
+                for (var i = minCell.x; i <= maxCell.x; i++)
+                {
+                    float cellX = i;
+                    var dx = cellX - gridPos.x;
+                    var dxSq = dx * dx;
+                    var distSq = dxSq + dzSq;
+
+                    if (distSq > radiusSq) continue;
+                    {
+                        var normalizedDistance = 1 - distSq * invRadiusSq;
+                        var oscillation = math.sin(normalizedDistance * OscillationFactor);
+                        var effect = normalizedDistance * oscillation * waveStrength;
+
+                        var index = j * GridSize.x + i;
+                        var span = WaveEffects.AsSpan();
+                        InterlockedAdd(ref span[index], effect);
+                    }
+                }
+            }
+        }
+        
+        static void InterlockedAdd(ref float location, float value)
+        {
+            float newCurrentValue = location;
+            while (true)
+            {
+                float currentValue = newCurrentValue;
+                float newValue = currentValue + value;
+                newCurrentValue = System.Threading.Interlocked.CompareExchange(ref location, newValue, currentValue);
+                if (newCurrentValue.Equals(currentValue)) return;
+            }
+        }
+    }
+
+    [BurstCompile]
+    struct ShowCellsJob : IJobFor
+    {
+        [ReadOnly] public NativeArray<float> WaveEffects;
+        
+        public int2 GridSize;
+        public float2 GridPivot;
         public Color From, To;
+        
+        public PerInstanceDataWriter PositionWriter;
+        public PerInstanceDataWriter ColorWriter;
 
         public void Execute(int index)
         {
-            var totalSize = new float2((Size.x - 1) * Gap.x, (Size.y - 1) * Gap.y);
-
-            var centerOffset = new float3(-totalSize.x * 0.5f, 0f, -totalSize.y * 0.5f);
-
-            var cell = new int2(index % Size.x, index / Size.x);
-            var yPos = math.sin(Time + cell.x * 0.2f + cell.y * 0.2f) * 2f;
-            var pos = new float3(cell.x * Gap.x, yPos, cell.y * Gap.y) + centerOffset + WorldPosition;
-
-            Transforms[index] = pos;
-            var invLerp = math.unlerp(-2, 2, pos.y);
+            var centerOffset = new float3(-GridSize.x * GridPivot.x, 0, -GridSize.y * GridPivot.y);
+            var cell = new int2(index % GridSize.x, index / GridSize.x);
+            var basePos = new float3(cell.x, 0, cell.y) + centerOffset;
+            var totalEffect = WaveEffects[index];
+            var pos = new float3(basePos.x, totalEffect, basePos.z);
+            var invLerp = math.unlerp(-1, 1, totalEffect);
             var color = Color.Lerp(From, To, invLerp);
+
             ColorWriter.Write(index, (Color32)color.linear);
             PositionWriter.Write(index, pos);
         }
