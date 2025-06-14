@@ -1,11 +1,10 @@
-﻿using System;
-using Unity.Burst;
+﻿using Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
 using Unity.Mathematics.Geometry;
 using UnityEngine;
-
+using Utils;
 
 [DefaultExecutionOrder(JobOrder.DataPostProcessor)]
 public class Waves : MonoBehaviour
@@ -15,7 +14,6 @@ public class Waves : MonoBehaviour
 
     [Header("Waves Properties")]
     [SerializeField] float baseWaveStrength = 2;
-
     [SerializeField] float expansionSpeed = 5f;
     [SerializeField] float decaySpeed = 0.8f;
 
@@ -25,6 +23,17 @@ public class Waves : MonoBehaviour
     [Header("ReadOnly Data Properties")]
     [RuntimeReadOnly, SerializeField] RainDropsData rainData;
 
+    MinMaxAABB currentAABB;
+    public void RaycastNewWave(float3 start, float3 end, float strength)
+    {
+        if (!currentAABB.RaycastAABB(start, end, out var entryPoint)) return;
+        wavesData.GetWriter().Data.Add(new Wave
+        {
+            Position = entryPoint,
+            Strength = baseWaveStrength * strength,
+            Radius = 1
+        });
+    }
 
     void OnEnable()
     {
@@ -38,19 +47,22 @@ public class Waves : MonoBehaviour
 
     void Update()
     {
-        var currentAABB = MinMaxAABB.CreateFromCenterAndExtents(dropsCollisionAABB.Center + (float3)transform.position, dropsCollisionAABB.Extents);
+        currentAABB = MinMaxAABB.CreateFromCenterAndExtents(dropsCollisionAABB.Center + (float3)transform.position, dropsCollisionAABB.Extents);
 
         var writeBuffer = wavesData.GetWriter();
         var readBuffer = rainData.GetReader();
         var filter = new NativeList<int>(writeBuffer.Data.Length, Allocator.TempJob);
 
-        writeBuffer.Dependency = new GenerateNewWavesJob
+        if (readBuffer.Data.IsCreated)
         {
-            Waves = writeBuffer.Data,
-            Drops = readBuffer.Data.AsDeferredJobArray(),
-            AABB = currentAABB,
-            BaseWaveStrength = baseWaveStrength
-        }.Schedule(readBuffer.Dependency);
+            writeBuffer.Dependency = new GenerateNewWavesJob
+            {
+                Waves = writeBuffer.Data,
+                Drops = readBuffer.Data.AsDeferredJobArray(),
+                AABB = currentAABB,
+                BaseWaveStrength = baseWaveStrength
+            }.Schedule(readBuffer.Dependency);
+        }
 
         writeBuffer.Dependency = new UpdateWavesJob
         {
@@ -88,7 +100,7 @@ public class Waves : MonoBehaviour
                 {
                     CreateWave(drop.Position, drop.Mass);
                 }
-                else if (RaycastAABB(drop.PrevPosition, drop.Position, out float3 entryPoint))
+                else if (AABB.RaycastAABB(drop.PrevPosition, drop.Position, out var entryPoint))
                 {
                     CreateWave(entryPoint, drop.Mass);
                 }
@@ -102,33 +114,6 @@ public class Waves : MonoBehaviour
                 Position = position,
                 Strength = BaseWaveStrength * mass
             });
-        }
-
-        bool RaycastAABB(float3 start, float3 end, out float3 entryPoint)
-        {
-            entryPoint = float3.zero;
-            var rayDir = end - start;
-            var rayLength = math.length(rayDir);
-
-            if (rayLength < 0.001f) return false;
-
-            var invDir = 1.0f / rayDir;
-            var t0 = (AABB.Min - start) * invDir;
-            var t1 = (AABB.Max - start) * invDir;
-
-            var tmin = math.min(t0, t1);
-            var tmax = math.max(t0, t1);
-
-            var tenter = math.cmax(tmin);
-            var texit = math.cmin(tmax);
-
-            if (tenter < texit && texit > 0 && tenter < rayLength)
-            {
-                entryPoint = start + math.normalize(rayDir) * math.max(0, tenter);
-                return true;
-            }
-
-            return false;
         }
     }
 
@@ -162,6 +147,7 @@ public class Waves : MonoBehaviour
 
         public void Execute()
         {
+            DeadIndices.Sort();
             for (var index = DeadIndices.Length - 1; index >= 0; index--)
             {
                 var deadIndex = DeadIndices[index];

@@ -166,7 +166,7 @@
     ],
     "m_VertexContext": {
         "m_Position": {
-            "x": 0.0000035762786865234377,
+            "x": 0.0000035762786865234376,
             "y": -7.000021457672119
         },
         "m_Blocks": [
@@ -969,10 +969,10 @@
     "m_Guid": {
         "m_GuidSerialized": "871531c3-34da-4f8e-a0bb-b9d9c63d5a46"
     },
-    "m_Name": "WorldPosition",
+    "m_Name": "CellOffset",
     "m_DefaultRefNameVersion": 1,
-    "m_RefNameGeneratedByDisplayName": "WorldPosition",
-    "m_DefaultReferenceName": "_WorldPosition",
+    "m_RefNameGeneratedByDisplayName": "CellOffset",
+    "m_DefaultReferenceName": "_CellOffset",
     "m_OverrideReferenceName": "",
     "m_GeneratePropertyBlock": false,
     "m_UseCustomSlotLabel": false,
@@ -1010,7 +1010,7 @@
     "m_Type": "UnityEditor.ShaderGraph.Vector3MaterialSlot",
     "m_ObjectId": "b2c057178f7f40d6a3c6ea756578fc61",
     "m_Id": 0,
-    "m_DisplayName": "WorldPosition",
+    "m_DisplayName": "CellOffset",
     "m_SlotType": 1,
     "m_Hidden": false,
     "m_ShaderOutputName": "Out",

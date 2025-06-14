@@ -5,6 +5,7 @@ using Unity.Jobs;
 using Unity.Mathematics;
 using Unity.Mathematics.Geometry;
 using UnityEngine;
+using Utils;
 using Random = UnityEngine.Random;
 
 [DefaultExecutionOrder(JobOrder.DataWriter)]
@@ -12,12 +13,10 @@ public class Rain : MonoBehaviour
 {
     [Header("Render Properties")]
     [RuntimeReadOnly, SerializeField] Mesh mesh;
-
     [RuntimeReadOnly, SerializeField] Material material;
 
     [Header("Rain Properties")]
-    [SerializeField, RuntimeReadOnly] int maxCount;
-
+    [RuntimeReadOnly, SerializeField] int maxCount;
     [SerializeField] MinMaxAABB spawnArea;
     [SerializeField] float dropsInterval = 0.5f;
     [SerializeField] MinMaxAABB deadThreshold;
@@ -70,8 +69,8 @@ public class Rain : MonoBehaviour
         dataWriter.Dependency = new ShowDropsJob
         {
             Drops = dataWriter.Data.AsDeferredJobArray(),
-            ObjToWorldWriter = renderInstance.GetPerInstanceWriter(BatchRendererGroupUtility.ObjectToWorldID),
-            WorldToObjWriter = renderInstance.GetPerInstanceWriter(BatchRendererGroupUtility.WorldToObjectID)
+            ObjToWorldWriter = renderInstance.GetPerInstanceWriter(ShaderProperties.ObjectToWorld),
+            WorldToObjWriter = renderInstance.GetPerInstanceWriter(ShaderProperties.WorldToObject)
         }.Schedule(dataWriter.Data, 64, dataWriter.Dependency);
 
         dataWriter.Dependency = new RemoveDeadDropsJob

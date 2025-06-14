@@ -3,15 +3,12 @@ using Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
-using Unity.Mathematics.Geometry;
 using UnityEngine;
+using Utils;
 
 [DefaultExecutionOrder(JobOrder.DataReader)]
 public class Surface : MonoBehaviour
 {
-    static readonly int ColorProperty = Shader.PropertyToID("_Color32");
-    static readonly int PositionProperty = Shader.PropertyToID("_WorldPosition");
-
     [Header("Render Properties")]
     [RuntimeReadOnly, SerializeField] Mesh mesh;
     [RuntimeReadOnly, SerializeField] Material material;
@@ -24,19 +21,16 @@ public class Surface : MonoBehaviour
     [Header("ReadOnly Data Properties")]
     [RuntimeReadOnly, SerializeField] WavesData wavesData;
 
-    public MinMaxAABB AABB => MinMaxAABB.CreateFromCenterAndExtents(transform.position, new float3(gridSize.x, 1, gridSize.y));
-
     RenderBuilderConfig renderBuilderConfig;
     RenderInstance renderInstance;
-
 
     void Awake()
     {
         renderBuilderConfig = RenderInstanceBuilder.Start()
             .WithMesh(mesh).WithMaterial(material)
             .WithTransformMatrix(false)
-            .WithProperty<float3>(PositionProperty)
-            .WithProperty<Color32>(ColorProperty);
+            .WithProperty<float3>(ShaderProperties.CellOffset)
+            .WithProperty<Color32>(ShaderProperties.Color32);
     }
 
     void OnEnable()
@@ -55,8 +49,8 @@ public class Surface : MonoBehaviour
     void Update()
     {
         var matrix = transform.ToCompactMatrix();
-        renderInstance.WriteSharedProperty(BatchRendererGroupUtility.ObjectToWorldID, matrix);
-        renderInstance.WriteSharedProperty(BatchRendererGroupUtility.WorldToObjectID, matrix.Inverse());
+        renderInstance.WriteSharedProperty(ShaderProperties.ObjectToWorld, matrix);
+        renderInstance.WriteSharedProperty(ShaderProperties.WorldToObject, matrix.Inverse());
 
         var waveEffects = new NativeArray<float>(gridSize.x * gridSize.y, Allocator.TempJob);
         if (wavesData.IsCreated)
@@ -74,8 +68,8 @@ public class Surface : MonoBehaviour
 
         renderInstance.Dependency = new ShowCellsJob
         {
-            PositionWriter = renderInstance.GetPerInstanceWriter(PositionProperty),
-            ColorWriter = renderInstance.GetPerInstanceWriter(ColorProperty),
+            PositionWriter = renderInstance.GetPerInstanceWriter(ShaderProperties.CellOffset),
+            ColorWriter = renderInstance.GetPerInstanceWriter(ShaderProperties.Color32),
             GridSize = gridSize,
             GridPivot = gridPivot,
             From = from, To = to,
@@ -88,7 +82,7 @@ public class Surface : MonoBehaviour
     struct ComputeWavesJob : IJobParallelForDefer
     {
         const float OscillationFactor = math.PI * 4;
-        
+
         [ReadOnly] public NativeArray<Wave> Waves;
         public NativeArray<float> WaveEffects;
         public float3 GridPosition;
@@ -103,7 +97,7 @@ public class Surface : MonoBehaviour
 
             var radius = wave.Radius;
             var radiusSq = radius * radius;
-            
+
             var minCell = (int2)math.floor(gridPos - radius);
             var maxCell = (int2)math.ceil(gridPos + radius);
             minCell = math.clamp(minCell, 0, GridSize - 1);
@@ -111,13 +105,14 @@ public class Surface : MonoBehaviour
 
             var waveStrength = wave.Strength;
             var invRadiusSq = 1.0f / radiusSq;
+            var span = WaveEffects.AsSpan();
 
             for (var j = minCell.y; j <= maxCell.y; j++)
             {
                 float cellZ = j;
                 var dz = cellZ - gridPos.y;
                 var dzSq = dz * dz;
-                
+
                 for (var i = minCell.x; i <= maxCell.x; i++)
                 {
                     float cellX = i;
@@ -132,22 +127,9 @@ public class Surface : MonoBehaviour
                         var effect = normalizedDistance * oscillation * waveStrength;
 
                         var index = j * GridSize.x + i;
-                        var span = WaveEffects.AsSpan();
-                        InterlockedAdd(ref span[index], effect);
+                        span[index].InterlockedAdd(effect);
                     }
                 }
-            }
-        }
-        
-        static void InterlockedAdd(ref float location, float value)
-        {
-            float newCurrentValue = location;
-            while (true)
-            {
-                float currentValue = newCurrentValue;
-                float newValue = currentValue + value;
-                newCurrentValue = System.Threading.Interlocked.CompareExchange(ref location, newValue, currentValue);
-                if (newCurrentValue.Equals(currentValue)) return;
             }
         }
     }
@@ -156,11 +138,11 @@ public class Surface : MonoBehaviour
     struct ShowCellsJob : IJobFor
     {
         [ReadOnly] public NativeArray<float> WaveEffects;
-        
+
         public int2 GridSize;
         public float2 GridPivot;
         public Color From, To;
-        
+
         public PerInstanceDataWriter PositionWriter;
         public PerInstanceDataWriter ColorWriter;
 

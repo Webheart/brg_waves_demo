@@ -5,7 +5,6 @@ using System.Diagnostics;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
 using UnityEngine;
-using UnityEngine.Rendering;
 
 namespace RendererTools
 {
@@ -33,6 +32,9 @@ namespace RendererTools
 
     public static class RenderInstanceBuilder
     {
+        static readonly int ObjectToWorldID = Shader.PropertyToID("unity_ObjectToWorld");
+        static readonly int WorldToObjectID = Shader.PropertyToID("unity_WorldToObject");
+        
         public static RenderBuilderConfig Start()
         {
             return new RenderBuilderConfig
@@ -62,7 +64,7 @@ namespace RendererTools
 
         public static RenderBuilderConfig WithTransformMatrix(this RenderBuilderConfig config, bool perInstance = true)
         {
-            return config.WithProperty<float4x3>(BatchRendererGroupUtility.ObjectToWorldID, perInstance).WithProperty<float4x3>(BatchRendererGroupUtility.WorldToObjectID, perInstance);
+            return config.WithProperty<float4x3>(ObjectToWorldID, perInstance).WithProperty<float4x3>(WorldToObjectID, perInstance);
         }
 
         public static RenderInstance Build(this RenderBuilderConfig config, int maxInstancesCount)
@@ -79,7 +81,7 @@ namespace RendererTools
             if (config.Properties.Count == 0) throw new InvalidOperationException("RenderInstanceBuilder: Properties is empty");
             foreach (var property in config.Properties)
             {
-                if (property.ID == BatchRendererGroupUtility.ObjectToWorldID || property.ID == BatchRendererGroupUtility.WorldToObjectID) continue;
+                if (property.ID == ObjectToWorldID || property.ID == WorldToObjectID) continue;
                 if (!config.Material.HasProperty(property.ID)) throw new InvalidOperationException("RenderInstanceBuilder: Material does not contain property with ID: " + property.ID);
             }
         }
